@@ -1,0 +1,292 @@
+// ReBank Relational Schema Definition
+// Supports PostgreSQL (production) and SQLite (local development persistence adapter)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  role         String    // CUSTOMER, REVIEWER, APPROVER, ADMIN
+  fullName     String    @map("full_name")
+  phone        String?
+  mfaSecret    String?   @map("mfa_secret")
+  mfaEnabled   Boolean   @default(false) @map("mfa_enabled")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  customerProfile  CustomerProfile?
+  reviewDecisions  ReviewDecision[]
+  statusHistories  RequestStatusHistory[]
+  notifications    Notification[]
+  auditEvents      AuditEvent[]
+  fraudAlerts      FraudAlert[]
+
+  @@map("users")
+}
+
+model CustomerProfile {
+  id             String    @id @default(uuid())
+  userId         String    @unique @map("user_id")
+  customerNumber String    @unique @map("customer_number")
+  address        String?
+  dateOfBirth    String?   @map("date_of_birth")
+  riskRating     String    @default("LOW") @map("risk_rating") // LOW, MEDIUM, HIGH, CRITICAL
+  nationality    String?
+  kycStatus      String    @default("PENDING") @map("kyc_status") // VERIFIED, EXPIRED, PENDING, REJECTED
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts         AccountReference[]
+  recoveryRequests RecoveryRequest[]
+  complaints       Complaint[]
+  fraudAlerts      FraudAlert[]
+  customerConsents CustomerConsent[]
+
+  @@map("customer_profiles")
+}
+
+model AccountReference {
+  id                  String               @id @default(uuid())
+  customerId          String               @map("customer_id")
+  accountHolderName   String?              @map("account_holder_name")
+  branchName          String?              @map("branch_name")
+  city                String?
+  state               String?
+  country             String?
+  accountNumberMasked String               @map("account_number_masked") // e.g. "•••• •••• •••• 1002"
+  ifscCode            String?              @map("ifsc_code")
+  phoneNumber         String?              @map("phone_number")
+  accountType         String               @default("SAVINGS") @map("account_type") // SAVINGS, CHECKING, BUSINESS
+  currency            String               @default("USD")
+  balance             Float                @default(0.0)
+  status              String               // ACTIVE, RESTRICTED, FROZEN, DORMANT
+  branchCode          String?              @map("branch_code")
+  cbsAccountRef       String               @unique @map("cbs_account_ref") // Simulated Core Banking System ID, e.g. CBS-ACC-1002
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+
+  customer     CustomerProfile      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  restrictions AccountRestriction[]
+  requests     RecoveryRequest[]
+  fraudAlerts  FraudAlert[]
+
+  @@map("account_references")
+}
+
+model AccountRestriction {
+  id                  String            @id @default(uuid())
+  accountId           String            @map("account_id")
+  restrictionCode     String            @map("restriction_code") // DORMANT_INACTIVE, KYC_EXPIRED, AML_SUSPICIOUS_TXN, SECURITY_COMPROMISED, COURT_ATTACHMENT_LIEN, OVERDRAFT_LIEN_HOLD
+  severity            String            // LOW, MEDIUM, HIGH, CRITICAL
+  description         String
+  impactedServices    String            @map("impacted_services") // Comma separated or JSON: e.g. "DEBITS_LOCKED,ATM_BLOCKED"
+  resolutionChecklist String            @map("resolution_checklist") // JSON string with step-by-step checklist
+  statutoryAuthority  String?           @map("statutory_authority") // Court name, Tax bureau, Central Bank
+  courtRefNo          String?           @map("court_ref_no") // Legal writ reference number if applicable
+  outstandingBalance  Float?            @map("outstanding_balance") // If negative balance hold
+  appliedAt           DateTime          @default(now()) @map("applied_at")
+  resolvedAt          DateTime?         @map("resolved_at")
+  isActive            Boolean           @default(true) @map("is_active")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  account  AccountReference  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  requests RecoveryRequest[]
+
+  @@map("account_restrictions")
+}
+
+model RecoveryRequest {
+  id                  String                 @id @default(uuid())
+  referenceNumber     String                 @unique @map("reference_number") // e.g. "REB-2026-89421"
+  customerId          String                 @map("customer_id")
+  accountId           String                 @map("account_id")
+  restrictionId       String                 @map("restriction_id")
+  categoryCode        String                 @map("category_code")
+  status              String                 @default("SUBMITTED") // SUBMITTED, UNDER_REVIEW, INFO_REQUESTED, REVIEWED_PENDING_APPROVAL, APPROVED, REJECTED, RESTORED
+  priority            String                 @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  customerExplanation String?                @map("customer_explanation")
+  sourceOfFunds       String?                @map("source_of_funds")
+  contactConfirmed    Boolean                @default(false) @map("contact_confirmed")
+  consentSigned       Boolean                @default(false) @map("consent_signed")
+  assignedReviewerId  String?                @map("assigned_reviewer_id")
+  assignedApproverId  String?                @map("assigned_approver_id")
+  cbsTransactionRef   String?                @map("cbs_transaction_ref") // Reference generated upon CBS hold release
+  submittedAt         DateTime               @default(now()) @map("submitted_at")
+  updatedAt           DateTime               @updatedAt @map("updated_at")
+  resolvedAt          DateTime?              @map("resolved_at")
+
+  customer        CustomerProfile        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  account         AccountReference       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  restriction     AccountRestriction     @relation(fields: [restrictionId], references: [id], onDelete: Cascade)
+  statusHistories RequestStatusHistory[]
+  documents       Document[]
+  reviewDecisions ReviewDecision[]
+  complaints      Complaint[]
+
+  @@map("recovery_requests")
+}
+
+model RequestStatusHistory {
+  id                String          @id @default(uuid())
+  recoveryRequestId String          @map("recovery_request_id")
+  previousStatus    String?         @map("previous_status")
+  newStatus         String          @map("new_status")
+  changedByUserId   String?         @map("changed_by_user_id")
+  actorRole         String          @map("actor_role") // CUSTOMER, REVIEWER, APPROVER, SYSTEM
+  notes             String?
+  createdAt         DateTime        @default(now()) @map("created_at")
+
+  recoveryRequest RecoveryRequest @relation(fields: [recoveryRequestId], references: [id], onDelete: Cascade)
+  user            User?           @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("request_status_histories")
+}
+
+model Document {
+  id                 String          @id @default(uuid())
+  recoveryRequestId  String          @map("recovery_request_id")
+  documentType       String          @map("document_type") // GOVT_ID, PROOF_OF_ADDRESS, SOURCE_OF_FUNDS, SELFIE_LIVENESS, COURT_CLEARANCE
+  fileName           String          @map("file_name")
+  mimeType           String          @map("mime_type")
+  fileSize           Int             @map("file_size")
+  filePath           String          @map("file_path")
+  fileUrl            String?         @map("file_url")
+  verificationStatus String          @default("VERIFIED") @map("verification_status") // PENDING, VERIFIED, FLAGGED, REJECTED
+  ocrExtractedData   String?         @map("ocr_extracted_data") // JSON string with extracted identity fields
+  ocrConfidenceScore Float?          @map("ocr_confidence_score") // e.g. 0.98
+  faceMatchScore     Float?          @map("face_match_score") // e.g. 0.94
+  createdAt          DateTime        @default(now()) @map("created_at")
+
+  recoveryRequest RecoveryRequest @relation(fields: [recoveryRequestId], references: [id], onDelete: Cascade)
+
+  @@map("documents")
+}
+
+model ReviewDecision {
+  id                       String          @id @default(uuid())
+  recoveryRequestId        String          @map("recovery_request_id")
+  reviewerId               String          @map("reviewer_id")
+  decisionType             String          @map("decision_type") // RECOMMEND_APPROVAL, REQUEST_MORE_INFO, REJECT, APPROVE_AND_UNFREEZE, ESCALATE
+  notes                    String?
+  riskScore                Int?            @map("risk_score") // 0 - 100
+  fourEyesValidationPassed Boolean         @default(true) @map("four_eyes_validation_passed")
+  createdAt                DateTime        @default(now()) @map("created_at")
+
+  recoveryRequest RecoveryRequest @relation(fields: [recoveryRequestId], references: [id], onDelete: Cascade)
+  reviewer        User            @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@map("review_decisions")
+}
+
+model Notification {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  title           String
+  message         String
+  type            String   @default("INFO") // INFO, WARNING, SUCCESS, ALERT
+  readStatus      Boolean  @default(false) @map("read_status")
+  deliveryChannel String   @default("IN_APP") @map("delivery_channel") // IN_APP, SMS, EMAIL
+  metadata        String?  // JSON string
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model Complaint {
+  id                String           @id @default(uuid())
+  customerId        String           @map("customer_id")
+  recoveryRequestId String?          @map("recovery_request_id")
+  subject           String
+  category          String           // SLA_DELAY, UNFAIR_RESTRICTION, DOCUMENT_REJECTED, OTHER
+  description       String
+  status            String           @default("OPEN") // OPEN, INVESTIGATING, ESCALATED, RESOLVED, CLOSED
+  resolutionNotes   String?          @map("resolution_notes")
+  escalationTier    Int              @default(1) @map("escalation_tier") // 1, 2, 3
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  customer        CustomerProfile  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  recoveryRequest RecoveryRequest? @relation(fields: [recoveryRequestId], references: [id], onDelete: SetNull)
+
+  @@map("complaints")
+}
+
+model AuditEvent {
+  id         String   @id @default(uuid())
+  actorId    String?  @map("actor_id")
+  actorRole  String   @map("actor_role") // CUSTOMER, REVIEWER, APPROVER, ADMIN, SYSTEM
+  action     String   // e.g. AUTH_LOGIN, RECOVERY_SUBMITTED, CBS_HOLD_RELEASED
+  entityType String   @map("entity_type") // USER, RECOVERY_REQUEST, ACCOUNT, COMPLAINT
+  entityId   String?  @map("entity_id")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  details    String?  // Sanitized JSON string (credentials/OTPs strictly excluded)
+  timestamp  DateTime @default(now())
+
+  user User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@map("audit_events")
+}
+
+model FraudRule {
+  id             String   @id @default(uuid())
+  ruleCode       String   @unique @map("rule_code")
+  name           String
+  description    String
+  severity       String   // LOW, MEDIUM, HIGH, CRITICAL
+  thresholdValue Float    @default(0) @map("threshold_value")
+  isEnabled      Boolean  @default(true) @map("is_enabled")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("fraud_rules")
+}
+
+model FraudAlert {
+  id                    String    @id @default(uuid())
+  alertCode             String    @unique @map("alert_code")
+  accountId             String    @map("account_id")
+  customerId            String    @map("customer_id")
+  alertType             String    @map("alert_type") // VELOCITY_SPIKE, FAILED_LOGINS, ANOMALOUS_GEOLOCATION, SUSPICIOUS_DEVICE, HIGH_VALUE_TRANSFER
+  severity              String    // LOW, MEDIUM, HIGH, CRITICAL
+  riskScore             Int       @map("risk_score") // 0 - 100
+  reasons               String    // JSON array of strings
+  status                String    @default("NEW") // NEW, ACKNOWLEDGED, INVESTIGATING, ESCALATED, CLOSED
+  assignedAnalystId     String?   @map("assigned_analyst_id")
+  resolutionDisposition String?   @map("resolution_disposition") // FALSE_POSITIVE, CONFIRMED_FRAUD_PREVENTED, CUSTOMER_VERIFIED
+  investigationNotes    String?   @map("investigation_notes")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  account  AccountReference @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  customer CustomerProfile  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  analyst  User?            @relation(fields: [assignedAnalystId], references: [id], onDelete: SetNull)
+
+  @@map("fraud_alerts")
+}
+
+model CustomerConsent {
+  id             String   @id @default(uuid())
+  customerId     String   @map("customer_id")
+  consentType    String   @map("consent_type") // DIGITAL_KYC_VERIFICATION, BIOMETRIC_DATA_PROCESSING, CREDIT_BUREAU_INQUIRY, DATA_RETENTION_POLICY
+  consentVersion String   @map("consent_version")
+  granted        Boolean  @default(true)
+  ipAddress      String?  @map("ip_address")
+  userAgent      String?  @map("user_agent")
+  timestamp      DateTime @default(now())
+
+  customer CustomerProfile @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("customer_consents")
+}

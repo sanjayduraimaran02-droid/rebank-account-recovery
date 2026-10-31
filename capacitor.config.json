@@ -1,0 +1,9 @@
+{
+  "appId": "com.rebank.accountrecovery",
+  "appName": "ReBank Recovery",
+  "webDir": "public",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  }
+}

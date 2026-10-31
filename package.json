@@ -1,0 +1,46 @@
+{
+  "name": "rebank-account-recovery",
+  "version": "1.0.0",
+  "description": "ReBank - Bank Account Recovery Platform Prototype",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node tests/api.test.js",
+    "test:full": "node tests/test-all-endpoints.js",
+    "test:live": "node tests/verify-live.js",
+    "seed": "node src/db/seed.js",
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "cap:sync": "node scripts/sync-android-assets.js",
+    "cap:copy": "node scripts/sync-android-assets.js",
+    "cap:open": "cap open android"
+  },
+  "keywords": [
+    "banking",
+    "account-recovery",
+    "cbs",
+    "kyc",
+    "four-eyes-principle"
+  ],
+  "author": "ReBank Engineering",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.7.1",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.4.0"
+  },
+  "devDependencies": {
+    "@prisma/client": "^7.10.1",
+    "@vitejs/plugin-react": "^6.1.2",
+    "prisma": "^7.10.1",
+    "vite": "^8.3.5"
+  }
+}
